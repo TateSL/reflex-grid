@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 const GRID_SIZE = 16; // 4x4
-const INITIAL_TIME = 2000; // 5 segundos para la oleada
+const INITIAL_TIME = 2000; // 2 segundos de tiempo base inicial para el Nivel 1
+const MIN_TIME = 800;    // Tiempo mínimo límite para evitar que sea injugable en niveles altos
 
 export default function ReflexGridGame({ onBackToMenu }) {
   const [score, setScore] = useState(0);
@@ -11,21 +12,21 @@ export default function ReflexGridGame({ onBackToMenu }) {
   const [gameStatus, setGameStatus] = useState('IDLE'); // 'IDLE' | 'PLAYING' | 'GAME_OVER'
   const [timeLeft, setTimeLeft] = useState(INITIAL_TIME);
 
-  // Configuración de celdas según el nivel
+  // Configuración de celdas según el nivel (¡Ya no necesitamos especificar el tiempo aquí!)
   const getBatchConfig = (currentLevel) => {
-  if (currentLevel === 1) return { greens: 1, reds: 0, time: 5000 };
-  if (currentLevel === 2) return { greens: 2, reds: 0, time: 5000 };
-  if (currentLevel === 3) return { greens: 3, reds: 1, time: 5000 };
-  if (currentLevel === 4) return { greens: Math.floor(Math.random() * 2) + 4, reds: Math.floor(Math.random() * 2) + 1, time: 5000 }; // 4-5 greens, 1-2 reds
-  if (currentLevel === 5) return { greens: Math.floor(Math.random() * 2) + 5, reds: Math.floor(Math.random() * 4) + 1, time: 5000 }; // 5-6 greens, 1-4 reds
-  if (currentLevel === 6) return { greens: 6, reds: Math.floor(Math.random() * 3) + 2, time: 5000 }; // 6 greens, 2-4 reds
-  if (currentLevel === 7) return { greens: Math.floor(Math.random() * 2) + 6, reds: Math.floor(Math.random() * 3) + 3, time: 4500 }; // 6-7 greens, 3-5 reds
-  if (currentLevel === 8) return { greens: 7, reds: Math.floor(Math.random() * 2) + 4, time: 4000 }; // 7 greens, 4-5 reds
-  if (currentLevel === 9) return { greens: Math.floor(Math.random() * 2) + 7, reds: Math.floor(Math.random() * 3) + 4, time: 3500 }; // 7-8 greens, 4-6 reds
-  
-  // Nivel 10 y superior (Modo Extremo)
-  return { greens: 8, reds: Math.floor(Math.random() * 2) + 5, time: 3000 }; // 8 greens, 5-6 reds, 3s de tiempo
-};
+    if (currentLevel === 1) return { greens: 1, reds: 0 };
+    if (currentLevel === 2) return { greens: 2, reds: 0 };
+    if (currentLevel === 3) return { greens: 3, reds: 1 };
+    if (currentLevel === 4) return { greens: Math.floor(Math.random() * 2) + 4, reds: Math.floor(Math.random() * 2) + 1 }; // 4-5 greens, 1-2 reds
+    if (currentLevel === 5) return { greens: Math.floor(Math.random() * 2) + 5, reds: Math.floor(Math.random() * 4) + 1 }; // 5-6 greens, 1-4 reds
+    if (currentLevel === 6) return { greens: 6, reds: Math.floor(Math.random() * 3) + 2 }; // 6 greens, 2-4 reds
+    if (currentLevel === 7) return { greens: Math.floor(Math.random() * 2) + 6, reds: Math.floor(Math.random() * 3) + 3 }; // 6-7 greens, 3-5 reds
+    if (currentLevel === 8) return { greens: 7, reds: Math.floor(Math.random() * 2) + 4 }; // 7 greens, 4-5 reds
+    if (currentLevel === 9) return { greens: Math.floor(Math.random() * 2) + 7, reds: Math.floor(Math.random() * 3) + 4 }; // 7-8 greens, 4-6 reds
+    
+    // Nivel 10 y superior (Modo Extremo)
+    return { greens: 8, reds: Math.floor(Math.random() * 2) + 5 }; // 8 greens, 5-6 reds
+  };
 
   // Generar nueva oleada
   const spawnNewBatch = useCallback((currentLevel) => {
@@ -47,7 +48,11 @@ export default function ReflexGridGame({ onBackToMenu }) {
 
     setActiveGreens(newGreens);
     setActiveReds(newReds);
-    setTimeLeft(INITIAL_TIME);
+
+    // CÁLCULO AUTOMÁTICO DEL TIEMPO:
+    // Restamos 100ms por cada nivel avanzado a partir del nivel 1, respetando un límite mínimo (MIN_TIME)
+    const calculatedTime = Math.max(MIN_TIME, INITIAL_TIME - (currentLevel - 1) * 100);
+    setTimeLeft(calculatedTime);
   }, []);
 
   const startGame = () => {
@@ -108,7 +113,6 @@ export default function ReflexGridGame({ onBackToMenu }) {
         else if (newScore >= 5) newLevel = 2;
 
         setLevel(newLevel);
-
         spawnNewBatch(newLevel);
       }
       return;
@@ -117,6 +121,9 @@ export default function ReflexGridGame({ onBackToMenu }) {
     // Si pulsa celda vacía u otra incorrecta -> Game Over
     setGameStatus('GAME_OVER');
   };
+
+  // Para calcular dinámicamente la anchura de la barra de progreso de forma fluida
+  const currentLevelTime = Math.max(MIN_TIME, INITIAL_TIME - (level - 1) * 120);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 text-white p-4">
@@ -135,7 +142,7 @@ export default function ReflexGridGame({ onBackToMenu }) {
         <div className="w-full max-w-md bg-slate-800 h-2 rounded-full mb-6 overflow-hidden">
           <div 
             className="bg-cyan-400 h-full transition-all duration-100"
-            style={{ width: `${(timeLeft / INITIAL_TIME) * 100}%` }}
+            style={{ width: `${(timeLeft / currentLevelTime) * 100}%` }}
           />
         </div>
       )}
