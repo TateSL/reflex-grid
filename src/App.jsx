@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import ReflexGridGame from './games/ReflexGridGame';
+import ReflexGridGame from './games/reflex-grid/ReflexGridGame';
 import packageJson from '../package.json'; // Importación de la versión desde package.json
 
 export default function App() {
