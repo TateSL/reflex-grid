@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   getStoredPlayerName, 
   getHighScores, 
@@ -9,7 +9,7 @@ const GRID_SIZE = 16;
 const INITIAL_TIME = 2000; 
 const MIN_TIME = 800; 
 
-export default function ReflexGridGame({ onBackToMenu }) {
+export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
   const [score, setScore] = useState(0);
   const [level, setLevel] = useState(1);
   const [activeGreens, setActiveGreens] = useState([]);
@@ -17,16 +17,48 @@ export default function ReflexGridGame({ onBackToMenu }) {
   const [gameStatus, setGameStatus] = useState('IDLE'); // 'IDLE' | 'PLAYING' | 'GAME_OVER'
   const [timeLeft, setTimeLeft] = useState(INITIAL_TIME);
 
-  // Estados para el sistema de puntuaciones y nombre
   const [playerName, setPlayerName] = useState('');
   const [highScores, setHighScores] = useState([]);
   const [viewMode, setViewMode] = useState('MENU'); // 'MENU' | 'SCORES'
 
-  // Cargar nombre e histórico al iniciar
+  // Referencia para la música exclusiva de este juego (ArcadeRush.mp3)
+  const gameplayAudioRef = useRef(null);
+
   useEffect(() => {
     setPlayerName(getStoredPlayerName());
     setHighScores(getHighScores());
+
+    const gameplayPath = `${import.meta.env.BASE_URL}sounds/ArcadeRush.mp3`;
+    const audio = new Audio(gamepath = gameplayPath);
+    audio.loop = true;
+    audio.volume = 0.4;
+    audio.preload = 'auto';
+    gameplayAudioRef.current = audio;
+
+    return () => {
+      if (gameplayAudioRef.current) {
+        gameplayAudioRef.current.pause();
+        gameplayAudioRef.current = null;
+      }
+    };
   }, []);
+
+  // Controlar reproducción y mute de la música de gameplay
+  useEffect(() => {
+    const audio = gameplayAudioRef.current;
+    if (!audio) return;
+
+    audio.muted = isMusicMuted;
+
+    if (gameStatus === 'PLAYING') {
+      audio.play().catch((err) => {
+        console.warn("Autoplay bloqueado en gameplay:", err);
+      });
+    } else {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+  }, [gameStatus, isMusicMuted]);
 
   const getBatchConfig = (currentLevel) => {
     if (currentLevel === 1) return { greens: 1, reds: 0 };
@@ -72,7 +104,6 @@ export default function ReflexGridGame({ onBackToMenu }) {
     spawnNewBatch(1);
   };
 
-  // Manejar fin de partida y autoguardado
   const handleGameOver = useCallback((finalScore, finalLevel) => {
     setGameStatus('GAME_OVER');
     const updated = saveScoreEntry(playerName || 'PLAYER', finalScore, finalLevel);
@@ -86,7 +117,6 @@ export default function ReflexGridGame({ onBackToMenu }) {
       setTimeLeft((prev) => {
         if (prev <= 100) {
           clearInterval(interval);
-          // Necesitamos evaluar el estado actual del score dentro del closure
           setScore((currentScore) => {
             setLevel((currentLevel) => {
               handleGameOver(currentScore, currentLevel);
@@ -149,7 +179,7 @@ export default function ReflexGridGame({ onBackToMenu }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 text-white p-4 select-none relative">
       
-      {/* CABECERA */}
+      {/* CABECERA (Ya sin el botón de mute interno, el control es global) */}
       <div className="w-full max-w-md flex flex-col items-center mb-4">
         <h1 className="text-2xl font-black tracking-widest text-cyan-400 mb-3">REFLEX GRID</h1>
         <div className="w-full flex justify-between items-center">
@@ -160,7 +190,7 @@ export default function ReflexGridGame({ onBackToMenu }) {
             ← Menú Hub
           </button>
           <div className="flex gap-4 text-sm font-semibold">
-            <span className="text-slate-400">Nivel: <strong className="text-cyan-400">{level}</strong></span>
+            <span className="text-slate-400">Lv: <strong className="text-cyan-400">{level}</strong></span>
             <span className="text-slate-400">Pts: <strong className="text-cyan-400">{score}</strong></span>
           </div>
         </div>
@@ -219,7 +249,6 @@ export default function ReflexGridGame({ onBackToMenu }) {
                   </p>
                 )}
 
-                {/* Input de Nombre (Máx 8 caracteres) */}
                 <div className="mb-5 text-left">
                   <label className="block text-xs font-semibold text-slate-400 mb-1">
                     NOMBRE JUGADOR (Máx 8 chars):
@@ -251,7 +280,6 @@ export default function ReflexGridGame({ onBackToMenu }) {
                 </div>
               </>
             ) : (
-              /* VISTA DE PUNTUACIONES */
               <>
                 <h2 className="text-xl font-bold mb-4 text-cyan-400">Mejores Puntuaciones</h2>
                 
