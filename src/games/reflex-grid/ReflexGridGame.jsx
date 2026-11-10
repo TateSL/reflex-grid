@@ -29,7 +29,7 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     setHighScores(getHighScores());
 
     const gameplayPath = `${import.meta.env.BASE_URL}sounds/ArcadeRush.mp3`;
-    const audio = new Audio(gamepath = gameplayPath);
+    const audio = new Audio(gameplayPath);
     audio.loop = true;
     audio.volume = 0.4;
     audio.preload = 'auto';
