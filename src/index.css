@@ -1,3 +1,18 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@keyframes arcade-blink {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(0.98);
+  }
+}
+
+.animate-arcade-blink {
+  animation: arcade-blink 0.25s infinite ease-in-out;
+}
