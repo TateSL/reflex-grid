@@ -5,34 +5,41 @@ import {
   saveScoreEntry 
 } from './reflexGridService';
 
+// Constantes de configuración global del juego
 const GRID_SIZE = 16; 
-const INITIAL_TIME = 2000; 
-const MIN_TIME = 800; 
-const ERROR_FLASH_DURATION = 1500;
+const FIXED_WAVE_TIME = 2000; // Tiempo fijo por oleada en ms[cite: 2]
+const ERROR_FLASH_DURATION = 1500; // Duración del parpadeo de error en ms[cite: 2]
 
 export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
+  // Estados principales de juego
   const [score, setScore] = useState(0);
   const [level, setLevel] = useState(1);
   const [activeGreens, setActiveGreens] = useState([]);
   const [activeReds, setActiveReds] = useState([]);
   
-  // Estados de flujo: 'IDLE' | 'COUNTDOWN' | 'PLAYING' | 'ERROR_FLASH' | 'GAME_OVER'
+  // Máquina de estados: 'IDLE' | 'COUNTDOWN' | 'PLAYING' | 'ERROR_FLASH' | 'GAME_OVER'
   const [gameStatus, setGameStatus] = useState('IDLE'); 
   const [countdownStep, setCountdownStep] = useState(3); 
-  const [timeLeft, setTimeLeft] = useState(INITIAL_TIME);
+  
+  // Control del temporizador
+  const [timeLeft, setTimeLeft] = useState(FIXED_WAVE_TIME);
+  const [waveTime, setWaveTime] = useState(FIXED_WAVE_TIME);
 
+  // Estados de retroalimentación visual de error
   const [errorCellIndex, setErrorCellIndex] = useState(null);
   const [isTimeOutError, setIsTimeOutError] = useState(false);
 
+  // Persistencia y vistas del modal
   const [playerName, setPlayerName] = useState('');
   const [highScores, setHighScores] = useState([]);
   const [viewMode, setViewMode] = useState('MENU');
 
+  // Referencias para audio y temporizadores (evitan fugas de memoria)
   const gameplayAudioRef = useRef(null);
   const errorTimeoutRef = useRef(null);
   const countdownTimeoutRef = useRef(null);
 
-  // Inicialización de datos y música de fondo
+  // 1. Inicialización de datos locales y precarga de música de fondo
   useEffect(() => {
     setPlayerName(getStoredPlayerName());
     setHighScores(getHighScores());
@@ -44,6 +51,7 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     audio.preload = 'auto';
     gameplayAudioRef.current = audio;
 
+    // Limpieza al desmontar el componente
     return () => {
       if (gameplayAudioRef.current) {
         gameplayAudioRef.current.pause();
@@ -54,6 +62,7 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     };
   }, []);
 
+  // Síntesis de audio nativo (Web Audio API) para cuenta atrás
   const playSystemBeep = (frequency, duration = 150) => {
     if (isMusicMuted) return;
     try {
@@ -62,15 +71,14 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
       const ctx = new AudioCtx();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-
+      
       osc.type = 'sine';
       osc.frequency.value = frequency;
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.setValueAtTime(0.4, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration / 1000);
-
+      
       osc.connect(gain);
       gain.connect(ctx.destination);
-
       osc.start();
       osc.stop(ctx.currentTime + duration / 1000);
     } catch (e) {
@@ -78,31 +86,30 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     }
   };
 
+  // Síntesis de zumbido de inicio (banderazo de salida)
   const playStartBuzzer = () => {
     if (isMusicMuted) return;
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
-      
       const osc1 = ctx.createOscillator();
       const osc2 = ctx.createOscillator();
       const gain = ctx.createGain();
-
+      
       osc1.type = 'square';
       osc1.frequency.setValueAtTime(440, ctx.currentTime);
       osc1.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.4);
-
+      
       osc2.type = 'sawtooth';
       osc2.frequency.setValueAtTime(220, ctx.currentTime);
-
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      
+      gain.gain.setValueAtTime(0.5, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
-
+      
       osc1.connect(gain);
       osc2.connect(gain);
       gain.connect(ctx.destination);
-
       osc1.start();
       osc2.start();
       osc1.stop(ctx.currentTime + 0.6);
@@ -112,23 +119,22 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     }
   };
 
+  // 2. Control sincronizado de la música de fondo
   useEffect(() => {
     const audio = gameplayAudioRef.current;
     if (!audio) return;
 
     audio.muted = isMusicMuted;
 
-    if (gameStatus === 'PLAYING') {
-      audio.play().catch((err) => console.warn("Autoplay bloqueado:", err));
-    } else {
+    if (gameStatus === 'PLAYING' && !isMusicMuted) {
+      audio.play().catch((err) => console.warn("Autoplay bloqueado por el navegador:", err));
+    } else if (gameStatus !== 'PLAYING' && gameStatus !== 'ERROR_FLASH') {
       audio.pause();
-      if (gameStatus !== 'ERROR_FLASH') {
-        audio.currentTime = 0;
-      }
+      audio.currentTime = 0;
     }
   }, [gameStatus, isMusicMuted]);
 
-  // CONFIGURACIÓN CORREGIDA: Progresión real de celdas por nivel
+  // Configuración de dificultad (cantidad de celdas objetivo y trampa por nivel)
   const getBatchConfig = (currentLevel) => {
     if (currentLevel === 1) return { greens: 1, reds: 0 };
     if (currentLevel === 2) return { greens: 2, reds: 0 };
@@ -138,12 +144,15 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     if (currentLevel === 6) return { greens: 6, reds: 2 };
     if (currentLevel === 7) return { greens: 7, reds: 3 };
     if (currentLevel === 8) return { greens: 8, reds: 3 };
+    
+    // Límite seguro para niveles superiores respetando el tamaño del grid (16 celdas)
     return { 
       greens: Math.min(10, 8 + Math.floor((currentLevel - 8) / 2)), 
       reds: Math.min(5, 3 + Math.floor((currentLevel - 8) / 3)) 
     };
   };
 
+  // Generación aleatoria de una nueva oleada en el tablero
   const spawnNewBatch = useCallback((currentLevel) => {
     const config = getBatchConfig(currentLevel);
     const availableIndices = Array.from({ length: GRID_SIZE }, (_, i) => i);
@@ -164,11 +173,11 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
 
     setActiveGreens(newGreens);
     setActiveReds(newReds);
-
-    const calculatedTime = Math.max(MIN_TIME, INITIAL_TIME - (currentLevel - 1) * 120);
-    setTimeLeft(calculatedTime);
+    setTimeLeft(FIXED_WAVE_TIME);
+    setWaveTime(FIXED_WAVE_TIME);
   }, []);
 
+  // Transición final a Game Over y guardado de puntuación
   const handleGameOver = useCallback((finalScore, finalLevel) => {
     setGameStatus('GAME_OVER');
     setErrorCellIndex(null);
@@ -177,6 +186,7 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     setHighScores(updated);
   }, [playerName]);
 
+  // Secuencia visual previa al Game Over cuando se comete un fallo
   const triggerErrorSequence = useCallback(({ cellIndex = null, timeOut = false, finalScore, finalLevel }) => {
     setGameStatus('ERROR_FLASH');
     setErrorCellIndex(cellIndex);
@@ -189,6 +199,7 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     }, ERROR_FLASH_DURATION);
   }, [handleGameOver]);
 
+  // Secuencia de inicio con cuenta atrás de 3 segundos
   const startCountdownSequence = () => {
     if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
     if (countdownTimeoutRef.current) clearTimeout(countdownTimeoutRef.current);
@@ -199,17 +210,16 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     setIsTimeOutError(false);
     setGameStatus('COUNTDOWN');
     setCountdownStep(3);
-
     playSystemBeep(300, 200);
 
     countdownTimeoutRef.current = setTimeout(() => {
       setCountdownStep(2);
       playSystemBeep(450, 200);
-
+      
       countdownTimeoutRef.current = setTimeout(() => {
         setCountdownStep(1);
         playSystemBeep(600, 200);
-
+        
         countdownTimeoutRef.current = setTimeout(() => {
           playStartBuzzer();
           setGameStatus('PLAYING');
@@ -219,6 +229,7 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     }, 1000);
   };
 
+  // Bucle de cuenta atrás de la oleada activa
   useEffect(() => {
     if (gameStatus !== 'PLAYING') return;
 
@@ -226,11 +237,7 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
       setTimeLeft((prev) => {
         if (prev <= 100) {
           clearInterval(interval);
-          triggerErrorSequence({ 
-            timeOut: true, 
-            finalScore: score, 
-            finalLevel: level 
-          });
+          triggerErrorSequence({ timeOut: true, finalScore: score, finalLevel: level });
           return 0;
         }
         return prev - 100;
@@ -240,35 +247,37 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     return () => clearInterval(interval);
   }, [gameStatus, score, level, triggerErrorSequence]);
 
+  // Lógica de evaluación al pulsar una celda
   const processCellPress = (index) => {
     if (gameStatus !== 'PLAYING') return;
 
-    // Caso 1: Pulsó una celda prohibida (roja)
+    // 1. Pulsó celda trampa (roja)
     if (activeReds.includes(index)) {
       triggerErrorSequence({ cellIndex: index, finalScore: score, finalLevel: level });
       return;
     }
 
-    // Caso 2: Pulsó una celda objetivo (cian/verde)
+    // 2. Pulsó celda objetivo (cian/verde)
     if (activeGreens.includes(index)) {
       const updatedGreens = activeGreens.filter((g) => g !== index);
       setActiveGreens(updatedGreens);
 
+      // Si completó todas las celdas objetivo de la oleada
       if (updatedGreens.length === 0) {
         const newScore = score + 1;
         setScore(newScore);
 
-        // Escalado de niveles corregido y ampliado
+        // Escalado personalizado de niveles
         let newLevel = level;
-        if (newScore >= 150) newLevel = 10;      //90
-        else if (newScore >= 118) newLevel = 9;  //75
-        else if (newScore >= 92) newLevel = 8;   //60
-        else if (newScore >= 70) newLevel = 7;   //50
-        else if (newScore >= 51) newLevel = 6;   //35
-        else if (newScore >= 35) newLevel = 5;   //25
-        else if (newScore >= 22) newLevel = 4;   //15
-        else if (newScore >= 12) newLevel = 3;   //10
-        else if (newScore >= 5) newLevel = 2;  
+        if (newScore >= 150) newLevel = 10;
+        else if (newScore >= 118) newLevel = 9;
+        else if (newScore >= 92) newLevel = 8;
+        else if (newScore >= 70) newLevel = 7;
+        else if (newScore >= 51) newLevel = 6;
+        else if (newScore >= 35) newLevel = 5;
+        else if (newScore >= 22) newLevel = 4;
+        else if (newScore >= 12) newLevel = 3;
+        else if (newScore >= 5) newLevel = 2;
 
         setLevel(newLevel);
         spawnNewBatch(newLevel);
@@ -276,7 +285,7 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
       return;
     }
 
-    // Caso 3: Pulsó una celda vacía por error
+    // 3. Pulsó una celda vacía por error
     triggerErrorSequence({ cellIndex: index, finalScore: score, finalLevel: level });
   };
 
@@ -285,14 +294,13 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
     processCellPress(index);
   };
 
-  const currentLevelTime = Math.max(MIN_TIME, INITIAL_TIME - (level - 1) * 120);
   const isBoardFrozen = gameStatus === 'PLAYING' || gameStatus === 'ERROR_FLASH';
   const showModal = gameStatus === 'IDLE' || gameStatus === 'GAME_OVER';
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 text-white p-4 select-none relative">
       
-      {/* CABECERA */}
+      {/* CABECERA (HUD) */}
       <div className="w-full max-w-md flex flex-col items-center mb-5">
         <h1 className="text-3xl sm:text-4xl font-black tracking-widest text-cyan-400 mb-4 drop-shadow-[0_0_15px_rgba(34,211,238,0.4)]">
           REFLEX GRID
@@ -309,7 +317,7 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
         </div>
       </div>
 
-      {/* TABLERO DE JUEGO */}
+      {/* TABLERO 4x4 */}
       <div className="grid grid-cols-4 gap-3 p-4 bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl max-w-md w-full aspect-square mb-4">
         {Array.from({ length: GRID_SIZE }).map((_, index) => {
           const isGreen = activeGreens.includes(index);
@@ -319,21 +327,13 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
           let cellStyle = 'bg-slate-800 opacity-80';
 
           if (gameStatus === 'COUNTDOWN') {
-            if (countdownStep === 3) {
-              cellStyle = 'bg-rose-600 shadow-[0_0_15px_rgba(244,63,94,0.8)] scale-95';
-            } else if (countdownStep === 2) {
-              cellStyle = 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.8)] scale-95';
-            } else if (countdownStep === 1) {
-              cellStyle = 'bg-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.95)] scale-100';
-            }
+            if (countdownStep === 3) cellStyle = 'bg-rose-600 shadow-[0_0_15px_rgba(244,63,94,0.8)] scale-95';
+            else if (countdownStep === 2) cellStyle = 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.8)] scale-95';
+            else if (countdownStep === 1) cellStyle = 'bg-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.95)] scale-100';
           } else if (isBoardFrozen) {
-            if (isErrorCell) {
-              cellStyle = 'bg-yellow-400 shadow-[0_0_25px_rgba(250,204,21,0.95)] animate-arcade-blink z-10';
-            } else if (isGreen) {
-              cellStyle = 'bg-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.8)] scale-105';
-            } else if (isRed) {
-              cellStyle = 'bg-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.8)] scale-105';
-            }
+            if (isErrorCell) cellStyle = 'bg-yellow-400 shadow-[0_0_25px_rgba(250,204,21,0.95)] animate-arcade-blink z-10';
+            else if (isGreen) cellStyle = 'bg-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.8)] scale-105';
+            else if (isRed) cellStyle = 'bg-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.8)] scale-105';
           }
 
           return (
@@ -347,14 +347,14 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
         })}
       </div>
 
-      {/* BARRA DE TIEMPO */}
+      {/* BARRA DE PROGRESO DE TIEMPO */}
       <div className="w-full max-w-md h-2.5 mb-6">
         {isBoardFrozen ? (
           <div className={`w-full h-full rounded-full overflow-hidden ${isTimeOutError ? 'bg-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.9)] animate-arcade-blink' : 'bg-slate-800'}`}>
             {!isTimeOutError && (
               <div 
                 className="bg-cyan-400 h-full transition-all duration-100"
-                style={{ width: `${(timeLeft / currentLevelTime) * 100}%` }}
+                style={{ width: `${(timeLeft / waveTime) * 100}%` }}
               />
             )}
           </div>
@@ -363,7 +363,7 @@ export default function ReflexGridGame({ onBackToMenu, isMusicMuted }) {
         )}
       </div>
 
-      {/* MODAL FLOTANTE (INICIO / GAME OVER) */}
+      {/* MODAL FLOTANTE (MENÚ INICIAL / GAME OVER / PUNTUACIONES) */}
       {showModal && (
         <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl max-w-sm w-full text-center flex flex-col">
